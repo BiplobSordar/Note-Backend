@@ -1,44 +1,64 @@
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
-dotenv.config();
+import fs from "fs";
+dotenv.config({
+  path: process.env.NODE_ENV === "production" ? ".env.prod" : ".env.local",
+});
 
 const DB_NAME = process.env.DB_NAME;
 
+let pool;
 
-const tempPool = await mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  port: process.env.DB_PORT,
-  waitForConnections: true,
-  connectionLimit: 1,
-});
+const sslOptions = process.env.DB_CA_PATH
+  ? { ca: fs.readFileSync(process.env.DB_CA_PATH), rejectUnauthorized: true }
+  : { rejectUnauthorized: false }; 
+const initDB = async () => {
+  let tempPool;
 
+  try {
+    tempPool = await mysql.createPool({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      port: process.env.DB_PORT,
+      waitForConnections: true,
+      ssl: sslOptions,
+      connectionLimit: 1,
+    });
 
-try {
-  
-  await tempPool.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
-  console.log(` Database '${DB_NAME}' ensured`);
-} catch (err) {
-  console.error(" Error creating database:", err.message);
-  process.exit(1);
-} finally {
-  await tempPool.end();
-}
+    
+    if (process.env.NODE_ENV !== 'production') {
+      await tempPool.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``);
+      console.log(`Database '${DB_NAME}' ensured`);
+    }
+  } catch (err) {
+    console.error("Error creating initial pool:", err.message);
+    process.exit(1);
+  } finally {
+    if (tempPool) await tempPool.end();
+  }
 
+ 
+  try {
+    pool = mysql.createPool({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: DB_NAME,
+      port: process.env.DB_PORT,
+      waitForConnections: true,
+      ssl: sslOptions,
+      connectionLimit: 10,
+      queueLimit: 0,
+    });
+    console.log("Main connection pool created");
+  } catch (err) {
+    console.error("Error creating main pool:", err.message);
+    process.exit(1);
+  }
+};
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: DB_NAME,
-  port: process.env.DB_PORT,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
-
-
+// Tables
 const createTables = async () => {
   try {
     const conn = await pool.getConnection();
@@ -64,14 +84,14 @@ const createTables = async () => {
       )
     `);
 
-    console.log(" Tables ensured");
+    console.log("Tables ensured");
     conn.release();
   } catch (err) {
-    console.error(" Error creating tables:", err.message);
+    console.error("Error creating tables:", err.message);
   }
 };
 
-
-createTables();
+await initDB();
+await createTables();
 
 export default pool;

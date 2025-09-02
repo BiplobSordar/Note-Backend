@@ -4,7 +4,12 @@ import authRoutes from "./routes/authRoutes.js";
 import noteRoutes from "./routes/noteRoutes.js";
 import cors from 'cors'
 
-dotenv.config();
+
+dotenv.config({
+  path: process.env.NODE_ENV === "production" ? ".env.prod" : ".env.local",
+});
+
+
 const app = express();
 app.use(cors())
 app.use(express.json());
